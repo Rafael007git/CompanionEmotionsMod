@@ -33,6 +33,9 @@ namespace CompanionEmotionsMod
         private bool _canSeeCamera;
         private bool _isCoveringSelf;
 
+        // Вспомогательное свойство внутри CompanionEmotionController:
+        private bool IsDisabledForPlayer => _customization != null && _customization._Player != null && !Plugin.IncludePlayerCharacter.Value;
+
         // Advanced lingerie state caching
         private bool _braHidesPanties;
 
@@ -75,6 +78,7 @@ namespace CompanionEmotionsMod
 
         private void Update()
         {
+            if (IsDisabledForPlayer) return;
             float dt = Time.deltaTime;
 
             // Poll sensors 4 times per second to save CPU
@@ -108,6 +112,7 @@ namespace CompanionEmotionsMod
 
         private void LateUpdate()
         {
+            if (IsDisabledForPlayer) return;
             // Apply blendshape weight in LateUpdate to override vanilla face animator updates
             if (_customization.body != null && _ashamedBlendShapeIndex >= 0)
             {
@@ -181,7 +186,7 @@ namespace CompanionEmotionsMod
                 if (dist > 0.2f && dist < 6.0f)
                 {
                     float camDot = Vector3.Dot(cam.transform.forward, toBody.normalized);
-                    _isLookedAtByCamera = camDot > 0.90f;
+                    _isLookedAtByCamera = camDot > 0.97f;
 
                     if (_headBone != null)
                     {
@@ -210,7 +215,7 @@ namespace CompanionEmotionsMod
 
         private void OnGUI()
         {
-            if (!Plugin.ShowDebugOverlay.Value) return;
+            if (!Plugin.ShowDebugOverlay.Value || IsDisabledForPlayer) return;
 
             Camera cam = Camera.main;
             if (cam == null || _headBone == null) return;
@@ -221,18 +226,17 @@ namespace CompanionEmotionsMod
 
             float y = Screen.height - screenPos.y;
 
-            string armorStr = _customization.armor != null ? $"Exist(Act:{_customization.armor.gameObject.activeInHierarchy})" : "Null";
-            string braStr = _customization.bra != null ? $"Exist(Act:{_customization.bra.gameObject.activeInHierarchy}, HidePanty:{_braHidesPanties})" : "Null";
-            string pantyStr = _customization.panties != null ? $"Exist(Act:{_customization.panties.gameObject.activeInHierarchy})" : "Null";
+            string armorStr = _customization.armor != null ? $"Act:{_customization.armor.gameObject.activeInHierarchy}" : "Null";
+            string braStr = _customization.bra != null ? $"Act:{_customization.bra.gameObject.activeInHierarchy} (HidePanty:{_braHidesPanties})" : "Null";
+            string pantyStr = _customization.panties != null ? $"Act:{_customization.panties.gameObject.activeInHierarchy}" : "Null";
 
             string text = $"{gameObject.name}\n" +
-                          $"Emb: {Embarrassment:F1} (T:{TargetEmbarrassment:F0}) | Ar: {Arousal:F1}\n" +
-                          $"TopState -> Armor: {armorStr} | Bra: {braStr} -> [TopNaked: {_isTopNaked}]\n" +
-                          $"BotState -> Armor: {armorStr} | Panty: {pantyStr} -> [BotNaked: {_isBottomNaked}]\n" +
+                          $"Emb: {Embarrassment:F1} (Target: {TargetEmbarrassment:F0}) | Arousal: {Arousal:F1}\n" +
+                          $"Top -> Armor: {armorStr} | Bra: {braStr} => [TopNaked: {_isTopNaked}]\n" +
+                          $"Bot -> Armor: {armorStr} | Panty: {pantyStr} => [BotNaked: {_isBottomNaked}]\n" +
                           $"CamLook: {_isLookedAtByCamera} | SeesCam: {_canSeeCamera} | Covering: {_isCoveringSelf}";
 
-            // Window width increased to 425px (+25% scaling) to prevent text clipping
-            GUI.Box(new Rect(screenPos.x - 212, y - 65, 425, 105), text);
+            GUI.Box(new Rect(screenPos.x - 280, y - 65, 560, 100), text);
         }
     }
 }

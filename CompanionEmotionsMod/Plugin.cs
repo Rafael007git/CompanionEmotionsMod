@@ -22,6 +22,7 @@ namespace CompanionEmotionsMod
 
         // Настройки конфигурации
         public static ConfigEntry<bool> ShowDebugOverlay;
+        public static ConfigEntry<bool> IncludePlayerCharacter;
         public static ConfigEntry<KeyCode> ToggleDebugKey;
         public static ConfigEntry<float> BaseGainSpeed;
         public static ConfigEntry<float> BaseDecaySpeed;
