@@ -15,7 +15,7 @@ namespace CompanionEmotionsMod
     {
         public const string PluginGuid = "com.lorifel007.companionemotions";
         public const string PluginName = "Companion Emotions Mod";
-        public const string PluginVersion = "0.1.1";
+        public const string PluginVersion = "0.1.2";
 
         public static ManualLogSource Log;
         private Harmony harmony;
@@ -28,6 +28,8 @@ namespace CompanionEmotionsMod
         public static ConfigEntry<float> BaseDecaySpeed;
         public static ConfigEntry<Color> BlushColorConfig;
         public static ConfigEntry<float> MaxBlushAlpha;
+        public static ConfigEntry<float> SweatGlossBoost;
+        public static ConfigEntry<float> MinPeakSweatGloss;
 
         // Loaded custom blush texture
         public static Texture2D BlushTexture;
@@ -102,6 +104,20 @@ namespace CompanionEmotionsMod
                 "Max Blush Intensity",
                 0.75f,
                 "Maximum alpha transparency (0.0 to 1.0) of the blush decal at 100 Embarrassment."
+            );
+
+            SweatGlossBoost = Config.Bind(
+                "Visual Settings",
+                "Sweat Gloss Boost",
+                0.30f,
+                "Additional skin smoothness added at 100% emotional stress/arousal."
+            );
+
+            MinPeakSweatGloss = Config.Bind(
+                "Visual Settings",
+                "Min Peak Sweat Gloss",
+                0.12f,
+                "Minimum target skin smoothness at 100% stress (ensures visible sweat sheen even on dry skin presets)."
             );
         }
 

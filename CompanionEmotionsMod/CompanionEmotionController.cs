@@ -33,6 +33,15 @@ namespace CompanionEmotionsMod
         private bool _canSeeCamera;
         private bool _isCoveringSelf;
 
+        // Индексы всех материалов кожи из CharacterCustomization.RefreshAppearence()
+        private static readonly int[] SkinMaterialIndices = { 0, 1, 2, 4, 5, 8, 16, 17, 18, 19, 20 };
+
+        // Параметры процедурного дыхания через блендшейпы
+        private float _breathPhase;
+        private float _baseStomachWeight;
+        private float _baseChestWeight;
+        private bool _breathBaseCaptured;
+
         // Вспомогательное свойство внутри CompanionEmotionController:
         private bool IsDisabledForPlayer => _customization != null && _customization._Player != null && (Plugin.IncludePlayerCharacter == null || !Plugin.IncludePlayerCharacter.Value);
 
@@ -61,6 +70,14 @@ namespace CompanionEmotionsMod
 
             CacheBones();
             CacheBlendShape();
+
+            if (_animator != null)
+            {
+                for (int i = 0; i < _animator.layerCount; i++)
+                {
+                    Plugin.Log.LogInfo($"[CompanionEmotions] {gameObject.name} Animator Layer {i}: {_animator.GetLayerName(i)} (Weight: {_animator.GetLayerWeight(i)})");
+                }
+            }
         }
 
         private void CacheBones()
@@ -130,6 +147,9 @@ namespace CompanionEmotionsMod
 
             // 2. Плавно обновляем декаль румянца на лице, губах и ушах
             UpdateFaceBlush();
+
+            // 3. Обновляем блеск кожи и частоту дыхания
+            UpdatePhysiology();
         }
 
         private void UpdateFaceBlush()
@@ -158,6 +178,64 @@ namespace CompanionEmotionsMod
             mats[1].SetColor("_Mask2_Rchannel_ColorAmountA", targetColor);
             mats[2].SetColor("_Mask2_Rchannel_ColorAmountA", targetColor);
             mats[4].SetColor("_Mask2_Rchannel_ColorAmountA", targetColor);
+        }
+
+        private void UpdatePhysiology()
+        {
+            if (_customization == null || _customization.body == null) return;
+
+            // Общий индекс волнения от 0.0 до 1.0 (максимум из смущения и возбуждения)
+            float stressFactor = Mathf.Clamp01(Mathf.Max(Embarrassment, Arousal) / 100f);
+
+            // 1. Влажный блеск кожи (_SmoothnessDeviate) с гарантированным порогом для сухой кожи
+            Material[] mats = _customization.body.materials;
+            if (mats != null && mats.Length > 20)
+            {
+                float baseGloss = _customization.skinGlossiness;
+                float boost = Plugin.SweatGlossBoost != null ? Plugin.SweatGlossBoost.Value : 0.30f;
+                float minPeak = Plugin.MinPeakSweatGloss != null ? Plugin.MinPeakSweatGloss.Value : 0.12f;
+
+                float peakGloss = Mathf.Max(baseGloss + boost, minPeak);
+                float targetSmoothness = Mathf.Lerp(baseGloss, peakGloss, stressFactor);
+
+                for (int i = 0; i < SkinMaterialIndices.Length; i++)
+                {
+                    int idx = SkinMaterialIndices[i];
+                    if (mats[idx] != null)
+                    {
+                        mats[idx].SetFloat("_SmoothnessDeviate", targetSmoothness);
+                    }
+                }
+            }
+
+            // 2. Непрерывное дыхание через блендшейпы грудной клетки и живота
+            if (Player.code != null)
+            {
+                int stomachIdx = Player.code.stomachDepthIndex;
+                int chestIdx = Player.code.chestWidthIndex;
+
+                // Запоминаем базовый вес блендшейпа из пресета персонажа при первом кадре
+                if (!_breathBaseCaptured && stomachIdx >= 0 && chestIdx >= 0)
+                {
+                    _baseStomachWeight = _customization.body.GetBlendShapeWeight(stomachIdx);
+                    _baseChestWeight = _customization.body.GetBlendShapeWeight(chestIdx);
+                    _breathBaseCaptured = true;
+                }
+
+                if (_breathBaseCaptured)
+                {
+                    // Частота плавно растёт от 1.8 рад/с (покой) до 4.8 рад/с (пик волнения)
+                    float freq = Mathf.Lerp(1.8f, 4.8f, stressFactor);
+                    _breathPhase += Time.deltaTime * freq;
+
+                    // Синусоида вдоха (0..1) и глубина вдоха (от 3 до 12 единиц)
+                    float wave = (Mathf.Sin(_breathPhase) + 1f) * 0.5f;
+                    float amp = Mathf.Lerp(3f, 12f, stressFactor);
+
+                    _customization.body.SetBlendShapeWeight(stomachIdx, _baseStomachWeight + wave * amp);
+                    _customization.body.SetBlendShapeWeight(chestIdx, _baseChestWeight + wave * (amp * 0.8f));
+                }
+            }
         }
 
         private void EvaluateSensors()
