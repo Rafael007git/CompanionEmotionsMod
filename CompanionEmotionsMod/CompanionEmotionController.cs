@@ -34,14 +34,22 @@ namespace CompanionEmotionsMod
         private bool _isCoveringSelf;
 
         // Вспомогательное свойство внутри CompanionEmotionController:
-        private bool IsDisabledForPlayer => _customization != null && _customization._Player != null && !Plugin.IncludePlayerCharacter.Value;
+        private bool IsDisabledForPlayer => _customization != null && _customization._Player != null && (Plugin.IncludePlayerCharacter == null || !Plugin.IncludePlayerCharacter.Value);
 
         // Advanced lingerie state caching
         private bool _braHidesPanties;
 
-        private void Start()
+        private void Awake()
         {
             _customization = GetComponent<CharacterCustomization>();
+        }
+
+        private void Start()
+        {
+            if (_customization == null)
+            {
+                _customization = GetComponent<CharacterCustomization>();
+            }
             if (_customization == null)
             {
                 Destroy(this);
@@ -119,6 +127,37 @@ namespace CompanionEmotionsMod
                 float weight = Mathf.Clamp(Embarrassment * 0.8f, 0f, 80f);
                 _customization.body.SetBlendShapeWeight(_ashamedBlendShapeIndex, weight);
             }
+
+            // 2. Плавно обновляем декаль румянца на лице, губах и ушах
+            UpdateFaceBlush();
+        }
+
+        private void UpdateFaceBlush()
+        {
+            if (_customization == null || _customization.body == null) return;
+
+            Material[] mats = _customization.body.materials;
+            if (mats == null || mats.Length <= 4) return;
+
+            // Если лицевая татуировка не надета и загружена наша face_blush.png — ставим её в слот
+            if (_customization.faceTatoos == null && Plugin.BlushTexture != null)
+            {
+                if (mats[1].GetTexture("_MakeUpMask2_RGB") != Plugin.BlushTexture)
+                {
+                    mats[1].SetTexture("_MakeUpMask2_RGB", Plugin.BlushTexture);
+                    mats[2].SetTexture("_MakeUpMask2_RGB", Plugin.BlushTexture);
+                    mats[4].SetTexture("_MakeUpMask2_RGB", Plugin.BlushTexture);
+                }
+            }
+
+            // Плавно меняем прозрачность цвета (от 0 до MaxBlushAlpha) в зависимости от Embarrassment
+            float normalizedEmb = Mathf.Clamp01(Embarrassment / 100f);
+            Color targetColor = Plugin.BlushColorConfig != null ? Plugin.BlushColorConfig.Value : new Color(0.85f, 0.22f, 0.28f, 1f);
+            targetColor.a = normalizedEmb * (Plugin.MaxBlushAlpha != null ? Plugin.MaxBlushAlpha.Value : 0.75f);
+
+            mats[1].SetColor("_Mask2_Rchannel_ColorAmountA", targetColor);
+            mats[2].SetColor("_Mask2_Rchannel_ColorAmountA", targetColor);
+            mats[4].SetColor("_Mask2_Rchannel_ColorAmountA", targetColor);
         }
 
         private void EvaluateSensors()
