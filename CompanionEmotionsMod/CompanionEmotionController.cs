@@ -71,6 +71,13 @@ namespace CompanionEmotionsMod
             CacheBones();
             CacheBlendShape();
 
+            string charKey = GetCharacterKey();
+            if (!string.IsNullOrEmpty(charKey) && Plugin.EmotionMemory.TryGetValue(charKey, out var saved))
+            {
+                Embarrassment = saved.Embarrassment;
+                Arousal = saved.Arousal;
+            }
+
             if (_animator != null)
             {
                 for (int i = 0; i < _animator.layerCount; i++)
@@ -132,6 +139,16 @@ namespace CompanionEmotionsMod
             if (shouldCover != _isCoveringSelf)
             {
                 _isCoveringSelf = shouldCover;
+            }
+
+            string charKey = GetCharacterKey();
+            if (!string.IsNullOrEmpty(charKey))
+            {
+                Plugin.EmotionMemory[charKey] = new Plugin.SavedEmotionState
+                {
+                    Embarrassment = this.Embarrassment,
+                    Arousal = this.Arousal
+                };
             }
         }
 
@@ -325,6 +342,14 @@ namespace CompanionEmotionsMod
             }
 
             TargetEmbarrassment = Mathf.Clamp(target, 0f, 100f);
+        }
+
+        private string GetCharacterKey()
+        {
+            if (_customization == null) return null;
+            if (!string.IsNullOrEmpty(_customization.characterName))
+                return _customization.characterName;
+            return gameObject.name;
         }
 
         public void AddArousal(float amount) => Arousal = Mathf.Clamp(Arousal + amount, 0f, 100f);

@@ -15,7 +15,7 @@ namespace CompanionEmotionsMod
     {
         public const string PluginGuid = "com.lorifel007.companionemotions";
         public const string PluginName = "Companion Emotions Mod";
-        public const string PluginVersion = "0.1.2";
+        public const string PluginVersion = "0.1.3";
 
         public static ManualLogSource Log;
         private Harmony harmony;
@@ -33,6 +33,14 @@ namespace CompanionEmotionsMod
 
         // Loaded custom blush texture
         public static Texture2D BlushTexture;
+
+        public struct SavedEmotionState
+        {
+            public float Embarrassment;
+            public float Arousal;
+        }
+
+        public static readonly System.Collections.Generic.Dictionary<string, SavedEmotionState> EmotionMemory = new System.Collections.Generic.Dictionary<string, SavedEmotionState>();
 
         private void Awake()
         {
