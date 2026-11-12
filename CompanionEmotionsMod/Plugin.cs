@@ -52,6 +52,9 @@ namespace CompanionEmotionsMod
                 InitConfig();
                 LoadBlushTexture();
 
+                string posesFolder = Path.Combine(Paths.PluginPath, "CompanionEmotionsMod", "poses");
+                PoseLoader.LoadAllCoverPoses(posesFolder);
+
                 harmony = new Harmony(PluginGuid);
                 harmony.PatchAll();
 

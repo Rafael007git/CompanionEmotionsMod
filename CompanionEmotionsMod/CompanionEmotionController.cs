@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace CompanionEmotionsMod
@@ -48,6 +49,12 @@ namespace CompanionEmotionsMod
         // Advanced lingerie state caching
         private bool _braHidesPanties;
 
+        // Кэш трансформов костей скелета и выбранный вариант позы ENF
+        private readonly Dictionary<string, Transform> _boneTransforms = new Dictionary<string, Transform>();
+        private Dictionary<string, Quaternion> _assignedCoverPose;
+        private float _coverBlendWeight;
+        private UnityEngine.AI.NavMeshAgent _navAgent;
+
         private void Awake()
         {
             _customization = GetComponent<CharacterCustomization>();
@@ -70,6 +77,10 @@ namespace CompanionEmotionsMod
 
             CacheBones();
             CacheBlendShape();
+
+            _navAgent = GetComponent<UnityEngine.AI.NavMeshAgent>();
+            CacheAllPoseBones();
+            AssignCoverPoseVariant();
 
             string charKey = GetCharacterKey();
             if (!string.IsNullOrEmpty(charKey) && Plugin.EmotionMemory.TryGetValue(charKey, out var saved))
@@ -134,12 +145,14 @@ namespace CompanionEmotionsMod
             // Natural decay for Arousal (placeholder for Phase 2)
             Arousal = Mathf.MoveTowards(Arousal, 0f, 4.0f * dt);
 
-            // Idle cover pose state verification
-            bool shouldCover = (_isTopNaked || _isBottomNaked) && Embarrassment >= CoverThreshold;
-            if (shouldCover != _isCoveringSelf)
-            {
-                _isCoveringSelf = shouldCover;
-            }
+            // Проверяем, можно ли применить позу прикрывания (не сидит на мебели + раздета + выше порога)
+            bool canPose = _customization.interactingObject == null;
+            bool shouldCover = canPose && (_isTopNaked || _isBottomNaked) && Embarrassment >= CoverThreshold;
+            _isCoveringSelf = shouldCover;
+
+            // Плавный переход веса позы за 0.5 секунды (скорость 2.0/сек)
+            float targetWeight = _isCoveringSelf ? 1.0f : 0.0f;
+            _coverBlendWeight = Mathf.MoveTowards(_coverBlendWeight, targetWeight, 2.0f * dt);
 
             string charKey = GetCharacterKey();
             if (!string.IsNullOrEmpty(charKey))
@@ -167,6 +180,9 @@ namespace CompanionEmotionsMod
 
             // 3. Обновляем блеск кожи и частоту дыхания
             UpdatePhysiology();
+
+            // 4. Обновляем позу ENF
+            UpdateCoverPose();
         }
 
         private void UpdateFaceBlush()
@@ -251,6 +267,34 @@ namespace CompanionEmotionsMod
 
                     _customization.body.SetBlendShapeWeight(stomachIdx, _baseStomachWeight + wave * amp);
                     _customization.body.SetBlendShapeWeight(chestIdx, _baseChestWeight + wave * (amp * 0.8f));
+                }
+            }
+        }
+
+        private void UpdateCoverPose()
+        {
+            if (_coverBlendWeight <= 0.001f || _assignedCoverPose == null) return;
+
+            // Проверяем, идёт ли персонаж прямо сейчас
+            bool isMoving = _navAgent != null && _navAgent.enabled && _navAgent.velocity.sqrMagnitude > 0.02f;
+
+            foreach (var kvp in _assignedCoverPose)
+            {
+                string boneName = kvp.Key;
+
+                // На ходу не трогаем ноги, чтобы спутница нормально шагала
+                if (isMoving && PoseLoader.LowerBodyBones.Contains(boneName))
+                {
+                    continue;
+                }
+
+                if (_boneTransforms.TryGetValue(boneName, out Transform boneTransform) && boneTransform != null)
+                {
+                    boneTransform.localRotation = Quaternion.Slerp(
+                        boneTransform.localRotation,
+                        kvp.Value,
+                        _coverBlendWeight
+                    );
                 }
             }
         }
@@ -350,6 +394,30 @@ namespace CompanionEmotionsMod
             if (!string.IsNullOrEmpty(_customization.characterName))
                 return _customization.characterName;
             return gameObject.name;
+        }
+
+        private void CacheAllPoseBones()
+        {
+            _boneTransforms.Clear();
+            foreach (Transform t in GetComponentsInChildren<Transform>(true))
+            {
+                if (PoseLoader.UpperBodyBones.Contains(t.name) || PoseLoader.LowerBodyBones.Contains(t.name))
+                {
+                    if (!_boneTransforms.ContainsKey(t.name))
+                    {
+                        _boneTransforms[t.name] = t;
+                    }
+                }
+            }
+        }
+
+        private void AssignCoverPoseVariant()
+        {
+            if (PoseLoader.CoverPoseVariants.Count == 0) return;
+
+            string key = GetCharacterKey() ?? gameObject.name;
+            int index = Mathf.Abs(key.GetHashCode()) % PoseLoader.CoverPoseVariants.Count;
+            _assignedCoverPose = PoseLoader.CoverPoseVariants[index];
         }
 
         public void AddArousal(float amount) => Arousal = Mathf.Clamp(Arousal + amount, 0f, 100f);
