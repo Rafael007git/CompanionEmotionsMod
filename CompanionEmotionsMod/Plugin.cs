@@ -15,7 +15,7 @@ namespace CompanionEmotionsMod
     {
         public const string PluginGuid = "com.lorifel007.companionemotions";
         public const string PluginName = "Companion Emotions Mod";
-        public const string PluginVersion = "0.1.3";
+        public const string PluginVersion = "0.1.4";
 
         public static ManualLogSource Log;
         private Harmony harmony;
@@ -113,7 +113,7 @@ namespace CompanionEmotionsMod
             MaxBlushAlpha = Config.Bind(
                 "Visual Settings",
                 "Max Blush Intensity",
-                0.75f,
+                0.90f,
                 "Maximum alpha transparency (0.0 to 1.0) of the blush decal at 100 Embarrassment."
             );
 

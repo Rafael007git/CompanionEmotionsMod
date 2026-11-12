@@ -152,9 +152,17 @@ namespace CompanionEmotionsMod
             // Natural decay for Arousal (placeholder for Phase 2)
             Arousal = Mathf.MoveTowards(Arousal, 0f, 4.0f * dt);
 
-            // Проверяем, можно ли применить позу прикрывания (не сидит на мебели + раздета + выше порога)
-            bool isInFreePose = _animator != null && !_animator.enabled;
-            bool canPose = _customization.interactingObject == null && !isInFreePose;
+            // Белый список: поза ENF разрешена ТОЛЬКО в обычном режиме прогулки по замку
+            bool isNormalCastleMode = Global.code != null &&
+                                      Global.code.curlocation != null &&
+                                      Global.code.curlocation.locationType == LocationType.home &&
+                                      !Global.code.onGUI &&
+                                      (Global.code.uiPose == null || !Global.code.uiPose.gameObject.activeInHierarchy);
+
+            bool canPose = isNormalCastleMode &&
+                           _customization.interactingObject == null &&
+                           (_animator == null || _animator.enabled);
+
             bool shouldCover = canPose && (_isTopNaked || _isBottomNaked) && Embarrassment >= CoverThreshold;
             _isCoveringSelf = shouldCover;
 
