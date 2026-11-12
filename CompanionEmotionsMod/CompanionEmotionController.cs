@@ -51,9 +51,14 @@ namespace CompanionEmotionsMod
 
         // Кэш трансформов костей скелета и выбранный вариант позы ENF
         private readonly Dictionary<string, Transform> _boneTransforms = new Dictionary<string, Transform>();
-        private Dictionary<string, Quaternion> _assignedCoverPose;
+        private CoverPoseData _assignedCoverPose;
         private float _coverBlendWeight;
+        private float _standingPoseWeight;
+        private float _stopDelayTimer;
         private UnityEngine.AI.NavMeshAgent _navAgent;
+        private Rigidbody _rigidbody;
+        private Vector3 _lastPosition;
+
 
         private void Awake()
         {
@@ -74,6 +79,8 @@ namespace CompanionEmotionsMod
 
             _audioSource = _customization.aud;
             _animator = _customization.anim;
+            _rigidbody = GetComponent<Rigidbody>();
+            _lastPosition = transform.position;
 
             CacheBones();
             CacheBlendShape();
@@ -146,7 +153,8 @@ namespace CompanionEmotionsMod
             Arousal = Mathf.MoveTowards(Arousal, 0f, 4.0f * dt);
 
             // Проверяем, можно ли применить позу прикрывания (не сидит на мебели + раздета + выше порога)
-            bool canPose = _customization.interactingObject == null;
+            bool isInFreePose = _animator != null && !_animator.enabled;
+            bool canPose = _customization.interactingObject == null && !isInFreePose;
             bool shouldCover = canPose && (_isTopNaked || _isBottomNaked) && Embarrassment >= CoverThreshold;
             _isCoveringSelf = shouldCover;
 
@@ -273,31 +281,76 @@ namespace CompanionEmotionsMod
 
         private void UpdateCoverPose()
         {
-            if (_coverBlendWeight <= 0.001f || _assignedCoverPose == null) return;
+            if (_coverBlendWeight <= 0.001f || _assignedCoverPose == null)
+            {
+                _lastPosition = transform.position;
+                _standingPoseWeight = 0f;
+                _stopDelayTimer = 0f;
+                return;
+            }
 
-            // Проверяем, идёт ли персонаж прямо сейчас
-            bool isMoving = _navAgent != null && _navAgent.enabled && _navAgent.velocity.sqrMagnitude > 0.02f;
+            float dt = Time.deltaTime;
+            float movedDistSq = (transform.position - _lastPosition).sqrMagnitude;
+            _lastPosition = transform.position;
 
-            foreach (var kvp in _assignedCoverPose)
+            bool isMoving = movedDistSq > 0.00005f;
+            if (!isMoving && _navAgent != null && _navAgent.enabled)
+            {
+                isMoving = _navAgent.velocity.sqrMagnitude > 0.01f;
+            }
+            if (!isMoving && _customization != null && _customization._Player != null)
+            {
+                isMoving = PMC_Input.forwardHold || PMC_Input.backHold || PMC_Input.leftHold || PMC_Input.rightHold;
+            }
+
+            // Если персонаж движется — взводим таймер ожидания 0.3 сек после остановки
+            if (isMoving)
+            {
+                _stopDelayTimer = 0.3f;
+            }
+            else if (_stopDelayTimer > 0f)
+            {
+                _stopDelayTimer = Mathf.MoveTowards(_stopDelayTimer, 0f, dt);
+            }
+
+            // Ноги и корпус возвращаются в позу только когда движение прекратилось И прошло 0.5 сек
+            bool canApplyStandingPose = !isMoving && _stopDelayTimer <= 0.001f;
+            float targetStandingWeight = canApplyStandingPose ? _coverBlendWeight : 0f;
+            float standBlendSpeed = isMoving ? 8.0f : 2.5f; // Сбрасываем мгновенно при старте бега, возвращаем плавно
+
+            _standingPoseWeight = Mathf.MoveTowards(_standingPoseWeight, targetStandingWeight, standBlendSpeed * dt);
+
+            // Опускаем таз (hip) по высоте из позы, чтобы ступни стояли на полу без левитации
+            if (_standingPoseWeight > 0.001f && _assignedCoverPose.HasHipPosition &&
+                _boneTransforms.TryGetValue("hip", out Transform hipTransform) && hipTransform != null)
+            {
+                hipTransform.localPosition = Vector3.Lerp(
+                    hipTransform.localPosition,
+                    _assignedCoverPose.HipLocalPosition,
+                    _standingPoseWeight
+                );
+            }
+
+            foreach (var kvp in _assignedCoverPose.BoneRotations)
             {
                 string boneName = kvp.Key;
+                bool isArmBone = PoseLoader.ArmBones.Contains(boneName);
 
-                // На ходу не трогаем ноги, чтобы спутница нормально шагала
-                if (isMoving && PoseLoader.LowerBodyBones.Contains(boneName))
-                {
-                    continue;
-                }
+                float weight = isArmBone ? _coverBlendWeight : _standingPoseWeight;
+                if (weight <= 0.001f) continue;
 
                 if (_boneTransforms.TryGetValue(boneName, out Transform boneTransform) && boneTransform != null)
                 {
                     boneTransform.localRotation = Quaternion.Slerp(
                         boneTransform.localRotation,
                         kvp.Value,
-                        _coverBlendWeight
+                        weight
                     );
                 }
             }
         }
+
+
 
         private void EvaluateSensors()
         {
