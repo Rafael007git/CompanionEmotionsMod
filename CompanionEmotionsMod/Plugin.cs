@@ -1,9 +1,9 @@
-﻿using System.Collections.Generic;
-using System.IO;
-using BepInEx;
+﻿using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
+using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 
 namespace CompanionEmotionsMod
@@ -16,7 +16,7 @@ namespace CompanionEmotionsMod
     {
         public const string PluginGuid = "com.lorifel007.companionemotions";
         public const string PluginName = "Companion Emotions Mod";
-        public const string PluginVersion = "0.1.4";
+        public const string PluginVersion = "0.1.5";
 
         public static ManualLogSource Log;
         private Harmony harmony;
@@ -40,6 +40,7 @@ namespace CompanionEmotionsMod
         public static ConfigEntry<float> MaxBlushAlpha;
         public static ConfigEntry<float> SweatGlossBoost;
         public static ConfigEntry<float> MinPeakSweatGloss;
+        public static ConfigEntry<bool> EnableCastleLifeFix;
 
         // Loaded assets
         public static Texture2D BlushTexture;
@@ -129,6 +130,14 @@ namespace CompanionEmotionsMod
                 0.12f,
                 "Minimum target skin smoothness at 100% stress (ensures visible sweat sheen even on dry skin presets)."
             );
+
+            EnableCastleLifeFix = Config.Bind(
+                "General Settings",
+                "Enable Castle Life Fix",
+                true,
+                "Fixes companion animation freeze after Free Pose Mode and restores autonomous castle behavior."
+            );
+
         }
 
         private void LoadAssets()

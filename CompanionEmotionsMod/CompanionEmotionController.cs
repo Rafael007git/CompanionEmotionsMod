@@ -4,6 +4,7 @@ using UnityEngine;
 
 namespace CompanionEmotionsMod
 {
+    [DefaultExecutionOrder(10000)]
     public class CompanionEmotionController : MonoBehaviour
     {
         // Main emotion scales (0..100)
@@ -157,11 +158,12 @@ namespace CompanionEmotionsMod
                                       Global.code.curlocation != null &&
                                       Global.code.curlocation.locationType == LocationType.home &&
                                       !Global.code.onGUI &&
+                                      (Global.code.uiFreePose == null || !Global.code.uiFreePose.gameObject.activeInHierarchy) &&
                                       (Global.code.uiPose == null || !Global.code.uiPose.gameObject.activeInHierarchy);
 
             bool canPose = isNormalCastleMode &&
                            _customization.interactingObject == null &&
-                           (_animator == null || _animator.enabled);
+                           (_animator == null || (_animator.enabled && _animator.speed > 0.01f));
 
             bool shouldCover = canPose && (_isTopNaked || _isBottomNaked) && Embarrassment >= CoverThreshold;
             _isCoveringSelf = shouldCover;

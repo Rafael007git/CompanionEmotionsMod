@@ -83,6 +83,7 @@
   <ItemGroup>
     <Compile Include="CompanionEmotionController.cs" />
     <Compile Include="Patches\CharacterPatch.cs" />
+    <Compile Include="Patches\CompanionLifecyclePatch.cs" />
     <Compile Include="Plugin.cs" />
     <Compile Include="PoseLoader.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
