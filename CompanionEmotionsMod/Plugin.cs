@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System.Collections.Generic;
+using System.IO;
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
@@ -20,6 +21,15 @@ namespace CompanionEmotionsMod
         public static ManualLogSource Log;
         private Harmony harmony;
 
+        public struct SavedEmotionState
+        {
+            public float Embarrassment;
+            public float Arousal;
+        }
+
+        public static readonly Dictionary<string, SavedEmotionState> EmotionMemory =
+            new Dictionary<string, SavedEmotionState>();
+
         // Config entries
         public static ConfigEntry<bool> IncludePlayerCharacter;
         public static ConfigEntry<bool> ShowDebugOverlay;
@@ -31,16 +41,8 @@ namespace CompanionEmotionsMod
         public static ConfigEntry<float> SweatGlossBoost;
         public static ConfigEntry<float> MinPeakSweatGloss;
 
-        // Loaded custom blush texture
+        // Loaded assets
         public static Texture2D BlushTexture;
-
-        public struct SavedEmotionState
-        {
-            public float Embarrassment;
-            public float Arousal;
-        }
-
-        public static readonly System.Collections.Generic.Dictionary<string, SavedEmotionState> EmotionMemory = new System.Collections.Generic.Dictionary<string, SavedEmotionState>();
 
         private void Awake()
         {
@@ -50,10 +52,7 @@ namespace CompanionEmotionsMod
             try
             {
                 InitConfig();
-                LoadBlushTexture();
-
-                string posesFolder = Path.Combine(Paths.PluginPath, "CompanionEmotionsMod", "poses");
-                PoseLoader.LoadAllCoverPoses(posesFolder);
+                LoadAssets();
 
                 harmony = new Harmony(PluginGuid);
                 harmony.PatchAll();
@@ -71,14 +70,14 @@ namespace CompanionEmotionsMod
             IncludePlayerCharacter = Config.Bind(
                 "General Settings",
                 "Include Player Character",
-                false,
-                "True: enable emotional reactions and debug overlay for the main player character. False: companions only."
+                true,
+                "True: enable emotional reactions and ENF poses for the main player character. False: companions only."
             );
 
             ShowDebugOverlay = Config.Bind(
                 "Debug Settings",
                 "Show Debug Overlay",
-                true,
+                false,
                 "Show the diagnostic emotion overlay above companions."
             );
 
@@ -92,28 +91,28 @@ namespace CompanionEmotionsMod
             BaseGainSpeed = Config.Bind(
                 "Balance Settings",
                 "Base Gain Speed",
-                15f,
+                25f,
                 "Base speed of embarrassment increase per second."
             );
 
             BaseDecaySpeed = Config.Bind(
                 "Balance Settings",
                 "Base Decay Speed",
-                10f,
+                15f,
                 "Base speed of embarrassment decrease per second."
             );
 
             BlushColorConfig = Config.Bind(
                 "Visual Settings",
                 "Blush Color",
-                new Color(0.85f, 0.22f, 0.28f, 1f),
+                new Color(0.76f, 0.16f, 0.22f, 1f),
                 "Tint color for the dynamic cheek blush decal."
             );
 
             MaxBlushAlpha = Config.Bind(
                 "Visual Settings",
                 "Max Blush Intensity",
-                0.90f,
+                0.95f,
                 "Maximum alpha transparency (0.0 to 1.0) of the blush decal at 100 Embarrassment."
             );
 
@@ -121,7 +120,7 @@ namespace CompanionEmotionsMod
                 "Visual Settings",
                 "Sweat Gloss Boost",
                 0.30f,
-                "Additional skin smoothness added at 100% emotional stress/arousal."
+                "Additional skin smoothness added at 100% emotional stress."
             );
 
             MinPeakSweatGloss = Config.Bind(
@@ -132,30 +131,28 @@ namespace CompanionEmotionsMod
             );
         }
 
-        private void LoadBlushTexture()
+        private void LoadAssets()
         {
-            // Стандартный путь SWPT: BepInEx\plugins\CompanionEmotionsMod\textures\face_blush.png
             string modFolder = Path.Combine(Paths.PluginPath, "CompanionEmotionsMod");
             string texturesFolder = Path.Combine(modFolder, "textures");
+            string posesFolder = Path.Combine(modFolder, "poses");
 
-            // Автоматически создаем структуру папок, если её ещё нет
             if (!Directory.Exists(texturesFolder))
-            {
                 Directory.CreateDirectory(texturesFolder);
-            }
 
-            string targetPath = Path.Combine(texturesFolder, "face_blush.png");
-
-            if (File.Exists(targetPath))
+            string blushPath = Path.Combine(texturesFolder, "face_blush.png");
+            if (File.Exists(blushPath))
             {
                 BlushTexture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                BlushTexture.LoadImage(File.ReadAllBytes(targetPath));
-                Log.LogInfo($"[{PluginName}] Successfully loaded face_blush.png from: {targetPath}");
+                BlushTexture.LoadImage(File.ReadAllBytes(blushPath));
+                Log.LogInfo($"[{PluginName}] Successfully loaded face_blush.png from: {blushPath}");
             }
             else
             {
-                Log.LogWarning($"[{PluginName}] face_blush.png not found! Please place the texture at: {targetPath}");
+                Log.LogWarning($"[{PluginName}] face_blush.png not found at: {blushPath}");
             }
+
+            PoseLoader.LoadAllCoverPoses(posesFolder);
         }
 
         private void Update()
