@@ -11,53 +11,95 @@ namespace CompanionEmotionsMod.Patches
         private NavMeshAgent _agent;
         private CharacterCustomization _customization;
 
+        private Furniture _targetFurniture;
         private float _routineTimer;
         private float _stuckTimer;
         private Vector3 _lastCheckPos;
 
-        public bool IsWandering => _agent != null && _agent.enabled && _agent.hasPath;
+        public string DebugStatus { get; private set; } = "Init";
+        public bool IsWandering => _agent != null && _agent.enabled && (_agent.hasPath || _agent.pathPending);
 
         private void Awake()
         {
             _companion = GetComponent<Companion>();
             _agent = GetComponent<NavMeshAgent>();
             _customization = GetComponent<CharacterCustomization>();
-            // Первый переход запускаем быстрее (через 5-15 сек), чтобы сразу проверить в игре, затем 60-180 сек
-            _routineTimer = Random.Range(5f, 15f);
+            _routineTimer = 5f; // Первый переход запускаем через 5 сек для быстрой проверки
         }
 
         public void Tick(float deltaTime)
         {
             if (_companion == null || _agent == null || _customization == null) return;
-            if (!_agent.enabled || !_agent.isOnNavMesh) return;
 
-            // Если компаньонка следует за игроком или ведёт бой — не мешаем
+            if (!_agent.enabled)
+            {
+                _agent.enabled = true;
+            }
+
+            if (!_agent.isOnNavMesh)
+            {
+                if (NavMesh.SamplePosition(transform.position, out NavMeshHit snapHit, 5.0f, NavMesh.AllAreas))
+                {
+                    _agent.Warp(snapHit.position);
+                }
+                else
+                {
+                    DebugStatus = "Off NavMesh!";
+                    return;
+                }
+            }
+
+            // Если следует за игроком или в бою — не мешаем
             if (_companion.movingToTarget != null || _companion.target != null)
             {
+                _targetFurniture = null;
                 _stuckTimer = 0f;
+                DebugStatus = "Following / Combat";
                 return;
             }
 
-            // Если сейчас идёт к точке маршрута
+            // Если идёт по маршруту (к точке или к мебели)
+            if (_agent.pathPending)
+            {
+                DebugStatus = "Calculating Path...";
+                return;
+            }
+
             if (_agent.hasPath)
             {
-                if (_agent.remainingDistance <= _agent.stoppingDistance + 0.3f)
+                string goalName = _targetFurniture != null ? _targetFurniture.name : "Point";
+                DebugStatus = $"To {goalName} (Rem:{_agent.remainingDistance:F1}m)";
+
+                if (_agent.remainingDistance <= _agent.stoppingDistance + 0.4f)
                 {
                     _companion.Stop();
                     _stuckTimer = 0f;
+
+                    // Если шла к мебели и она всё ещё свободна — садимся
+                    if (_targetFurniture != null)
+                    {
+                        if (_targetFurniture.user == null)
+                        {
+                            _targetFurniture.InteractWithOnlyPoses(_customization);
+                        }
+                        _targetFurniture = null;
+                    }
+
                     ResetRoutineTimer();
                     return;
                 }
 
-                // Защита от застревания
+                // Защита от застревания в пути
                 if ((transform.position - _lastCheckPos).sqrMagnitude < 0.02f)
                 {
                     _stuckTimer += deltaTime;
-                    if (_stuckTimer >= 8f)
+                    if (_stuckTimer >= 7f)
                     {
                         _companion.Stop();
+                        _targetFurniture = null;
                         _stuckTimer = 0f;
-                        _routineTimer = Random.Range(3f, 8f);
+                        _routineTimer = 3f;
+                        DebugStatus = "Stuck -> Reset";
                     }
                 }
                 else
@@ -68,11 +110,16 @@ namespace CompanionEmotionsMod.Patches
                 return;
             }
 
-            // Отсчёт таймера смены занятия
+            // Отсчёт таймера в покое или на мебели
             _routineTimer -= deltaTime;
-            if (_routineTimer > 0f) return;
+            if (_routineTimer > 0f)
+            {
+                string statePrefix = _customization.interactingObject != null ? "Using Furniture" : "Idle";
+                DebugStatus = $"{statePrefix} (Next:{_routineTimer:F0}s)";
+                return;
+            }
 
-            // Если сидит на мебели — проверяем, можно ли уйти самостоятельно
+            // Если сейчас сидит на мебели — проверяем, можно ли уйти самостоятельно
             if (_customization.interactingObject != null)
             {
                 Furniture currentFurniture = _customization.interactingObject.GetComponent<Furniture>();
@@ -82,30 +129,38 @@ namespace CompanionEmotionsMod.Patches
                     return;
                 }
 
-                // Безопасно встаём с мебели
                 if (currentFurniture != null)
                 {
                     try { currentFurniture.QuitInteractWithOnlyPoses(_customization); }
                     catch { _customization.interactingObject = null; }
                 }
+
+                // Даём 2 секунды после вставания перед началом нового маршрута
+                _routineTimer = 2f;
+                DebugStatus = "Standing up...";
+                return;
             }
 
-            // С вероятностью 40% садимся на другую свободную мебель, иначе просто гуляем по залу
-            if (Random.value < 0.40f && TryUseRandomFurniture())
+            // С вероятностью 50% идём пешком к свободной мебели в радиусе 20м, иначе гуляем по залу
+            if (Random.value < 0.50f && TryWalkToRandomFurniture())
             {
+                _stuckTimer = 0f;
+                _lastCheckPos = transform.position;
                 ResetRoutineTimer();
                 return;
             }
 
             if (TryWanderToRandomPoint())
             {
+                _targetFurniture = null;
                 _stuckTimer = 0f;
                 _lastCheckPos = transform.position;
                 ResetRoutineTimer();
             }
             else
             {
-                _routineTimer = Random.Range(5f, 10f);
+                DebugStatus = "No Valid Path!";
+                _routineTimer = 5f;
             }
         }
 
@@ -123,35 +178,16 @@ namespace CompanionEmotionsMod.Patches
             return true;
         }
 
-        private bool TryWanderToRandomPoint()
-        {
-            for (int attempt = 0; attempt < 8; attempt++)
-            {
-                Vector2 circle = Random.insideUnitCircle.normalized * Random.Range(4f, 10f);
-                Vector3 candidate = transform.position + new Vector3(circle.x, 0f, circle.y);
-
-                if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 3.0f, NavMesh.AllAreas))
-                {
-                    NavMeshPath path = new NavMeshPath();
-                    if (_agent.CalculatePath(hit.position, path) && path.status == NavMeshPathStatus.PathComplete)
-                    {
-                        _agent.isStopped = false;
-                        _agent.SetDestination(hit.position);
-                        return true;
-                    }
-                }
-            }
-            return false;
-        }
-
-        private bool TryUseRandomFurniture()
+        private bool TryWalkToRandomFurniture()
         {
             if (Global.code == null || Global.code.interactableFurnitures == null) return false;
 
-            List<Furniture> available = new List<Furniture>();
+            List<(Furniture furn, NavMeshPath path)> candidates = new List<(Furniture, NavMeshPath)>();
+
             foreach (Transform item in Global.code.interactableFurnitures.items)
             {
                 if (!item || !item.gameObject.activeInHierarchy) continue;
+                if (Vector3.Distance(transform.position, item.position) > 20f) continue;
 
                 Furniture f = item.GetComponent<Furniture>();
                 if (f != null && f.user == null && f.poses != null && f.poses.items.Count > 0)
@@ -161,15 +197,56 @@ namespace CompanionEmotionsMod.Patches
                         _agent.CalculatePath(hit.position, path) &&
                         path.status == NavMeshPathStatus.PathComplete)
                     {
-                        available.Add(f);
+                        candidates.Add((f, path));
                     }
                 }
             }
 
-            if (available.Count == 0) return false;
-            Furniture chosen = available[Random.Range(0, available.Count)];
-            chosen.InteractWithOnlyPoses(_customization);
+            if (candidates.Count == 0) return false;
+
+            var chosen = candidates[Random.Range(0, candidates.Count)];
+            _targetFurniture = chosen.furn;
+
+            UnfreezePhysics();
+            _agent.SetPath(chosen.path);
             return true;
+        }
+
+        private bool TryWanderToRandomPoint()
+        {
+            for (int attempt = 0; attempt < 10; attempt++)
+            {
+                Vector2 circle = Random.insideUnitCircle.normalized * Random.Range(3.5f, 8.0f);
+                Vector3 candidate = transform.position + new Vector3(circle.x, 0f, circle.y);
+
+                if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 3.0f, NavMesh.AllAreas))
+                {
+                    NavMeshPath path = new NavMeshPath();
+                    if (_agent.CalculatePath(hit.position, path) && path.status == NavMeshPathStatus.PathComplete)
+                    {
+                        UnfreezePhysics();
+                        _agent.SetPath(path);
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        public void UnfreezePhysics()
+        {
+            Rigidbody rb = GetComponent<Rigidbody>();
+            if (rb != null)
+            {
+                rb.isKinematic = false;
+                rb.useGravity = true;
+                rb.constraints = RigidbodyConstraints.FreezeRotation;
+            }
+
+            _agent.updatePosition = true;
+            _agent.updateRotation = true;
+            if (_agent.speed < 1.5f) _agent.speed = 3.5f;
+            _agent.isStopped = false;
         }
     }
 
@@ -228,6 +305,23 @@ namespace CompanionEmotionsMod.Patches
                     if (anim != null && anim.enabled)
                     {
                         anim.speed = 1f;
+
+                        // Размораживаем физику и навигацию после режима позирования
+                        CastleWanderTracker tracker = comp.GetComponent<CastleWanderTracker>();
+                        if (tracker != null)
+                        {
+                            tracker.UnfreezePhysics();
+                        }
+                        else
+                        {
+                            Rigidbody rb = comp.GetComponent<Rigidbody>();
+                            if (rb != null)
+                            {
+                                rb.isKinematic = false;
+                                rb.useGravity = true;
+                                rb.constraints = RigidbodyConstraints.FreezeRotation;
+                            }
+                        }
                     }
                 }
             }

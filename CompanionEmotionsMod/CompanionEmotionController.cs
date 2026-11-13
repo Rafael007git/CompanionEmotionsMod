@@ -503,13 +503,18 @@ namespace CompanionEmotionsMod
             string braStr = _customization.bra != null ? $"Act:{_customization.bra.gameObject.activeInHierarchy} (HidePanty:{_braHidesPanties})" : "Null";
             string pantyStr = _customization.panties != null ? $"Act:{_customization.panties.gameObject.activeInHierarchy}" : "Null";
 
+            var wanderTracker = GetComponent<Patches.CastleWanderTracker>();
+            string aiStr = wanderTracker != null ? wanderTracker.DebugStatus : "No Tracker";
+
             string text = $"{gameObject.name}\n" +
                           $"Emb: {Embarrassment:F1} (Target: {TargetEmbarrassment:F0}) | Arousal: {Arousal:F1}\n" +
                           $"Top -> Armor: {armorStr} | Bra: {braStr} => [TopNaked: {_isTopNaked}]\n" +
                           $"Bot -> Armor: {armorStr} | Panty: {pantyStr} => [BotNaked: {_isBottomNaked}]\n" +
-                          $"CamLook: {_isLookedAtByCamera} | SeesCam: {_canSeeCamera} | Covering: {_isCoveringSelf}";
+                          $"CamLook: {_isLookedAtByCamera} | SeesCam: {_canSeeCamera} | Covering: {_isCoveringSelf}\n" +
+                          $"CastleAI: {aiStr}";
 
-            GUI.Box(new Rect(screenPos.x - 280, y - 65, 560, 100), text);
+            GUI.Box(new Rect(screenPos.x - 280, y - 75, 560, 118), text);
+
         }
     }
 }
