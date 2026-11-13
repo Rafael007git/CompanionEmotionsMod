@@ -41,6 +41,9 @@ namespace CompanionEmotionsMod
         public static ConfigEntry<float> SweatGlossBoost;
         public static ConfigEntry<float> MinPeakSweatGloss;
         public static ConfigEntry<bool> EnableCastleLifeFix;
+        public static ConfigEntry<float> MinRoutineInterval;
+        public static ConfigEntry<float> MaxRoutineInterval;
+
 
         // Loaded assets
         public static Texture2D BlushTexture;
@@ -137,6 +140,21 @@ namespace CompanionEmotionsMod
                 true,
                 "Fixes companion animation freeze after Free Pose Mode and restores autonomous castle behavior."
             );
+
+            MinRoutineInterval = Config.Bind(
+                "Castle AI Settings",
+                "Min Routine Interval",
+                60f,
+                "Minimum time in seconds before a companion changes her activity or furniture in the castle."
+            );
+
+            MaxRoutineInterval = Config.Bind(
+                "Castle AI Settings",
+                "Max Routine Interval",
+                180f,
+                "Maximum time in seconds before a companion changes her activity or furniture in the castle."
+            );
+
 
         }
 
