@@ -154,21 +154,20 @@ namespace CompanionEmotionsMod.Patches
             }
 
             // 5. Выбор новой цели (50% подойти к мебели, 50% пройтись по залу)
-            /*
             if (Random.value < 0.50f && TryWalkToRandomFurniture())
             {
                 _stuckTimer = 0f;
                 _lastCheckPos = transform.position;
+                ResetRoutineTimer();
                 return;
             }
-            */
 
             if (TryWanderToRandomPoint())
             {
                 _targetFurniture = null;
                 _stuckTimer = 0f;
                 _lastCheckPos = transform.position;
-                ResetRoutineTimer(); // <--- БЕЗ ЭТОЙ СТРОЧКИ ОНА ПЕРЕЗАПУСКАЕТ ПУТЬ КАЖДЫЙ КАДР!
+                ResetRoutineTimer();
             }
             else
             {
@@ -209,6 +208,8 @@ namespace CompanionEmotionsMod.Patches
                 {
                     bool hasValidPoses = (f.poses != null && f.poses.items.Count > 0) || FurnitureAnimAPI.HasCustomAnimations(f);
                     if (!hasValidPoses) continue;
+                    if (item.GetComponent<Mirror>() != null) continue;
+                    if (item.GetComponent<LingerieShop>() != null) continue;
 
                     NavMeshPath path = new NavMeshPath();
                     if (NavMesh.SamplePosition(item.position, out NavMeshHit hit, 2.0f, NavMesh.AllAreas) &&
@@ -229,6 +230,8 @@ namespace CompanionEmotionsMod.Patches
 
             UnfreezePhysics();
             Plugin.Log.LogWarning($"[WANDER_DEBUG] Starting walk to '{chosen.furn.name}' at {chosen.destPos} (StartDist={Vector3.Distance(transform.position, chosen.destPos):F2}m)");
+            _agent.nextPosition = transform.position;
+            _startWalkPos = transform.position;
             _agent.SetPath(chosen.path);
             return true;
         }
