@@ -15,7 +15,7 @@ namespace CompanionEmotionsMod.Patches
         private Furniture _targetFurniture;
         private Furniture _activeFurniture;
         private bool _isUsingFurniture;
-        
+        private bool _extendedForAudio;
         private float _routineTimer;
         private float _stuckTimer;
         private Vector3 _destinationPos;
@@ -49,6 +49,21 @@ namespace CompanionEmotionsMod.Patches
                     return;
                 }
 
+                // Мягкий намёк: если музыка ещё играет и мы ещё не продлевали таймер под этот трек — доигрываем до конца!
+                if (!_extendedForAudio)
+                {
+                    float remainingAudio = FurnitureAnimAPI.GetRemainingAudioTime(_customization);
+                    if (remainingAudio > 0.5f)
+                    {
+                        _extendedForAudio = true;
+                        _routineTimer = remainingAudio + 0.5f; // +0.5с на плавное затухание/выход
+                        string furnName = _activeFurniture != null ? _activeFurniture.name : "Furniture";
+                        DebugStatus = $"Finishing song at {furnName} ({_routineTimer:F0}s)";
+                        Plugin.Log.LogInfo($"[CastleAI] {gameObject.name} продлевает выступление на {_routineTimer:F1}с, чтобы доиграть трек.");
+                        return;
+                    }
+                }
+
                 if (_activeFurniture != null && !CanLeaveFurniture(_activeFurniture))
                 {
                     ResetRoutineTimer();
@@ -64,7 +79,8 @@ namespace CompanionEmotionsMod.Patches
                 FurnitureAnimAPI.StopCompanionAnimation(_customization);
                 _activeFurniture = null;
                 _isUsingFurniture = false;
-                _routineTimer = 3f;
+                _extendedForAudio = false;
+                _routineTimer = Random.Range(4f, 10f); // Короткая естественная пауза в коридоре (4-10 сек вместо 60-180!)
                 DebugStatus = "Standing up...";
                 return;
             }
@@ -117,6 +133,7 @@ namespace CompanionEmotionsMod.Patches
                             FurnitureAnimAPI.PlayRandomPoseForCompanion(_targetFurniture, _customization);
                             _activeFurniture = _targetFurniture;
                             _isUsingFurniture = true;
+                            _extendedForAudio = false;
                         }
                         _targetFurniture = null;
                     }
