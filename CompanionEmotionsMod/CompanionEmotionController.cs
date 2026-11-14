@@ -59,7 +59,7 @@ namespace CompanionEmotionsMod
         private UnityEngine.AI.NavMeshAgent _navAgent;
         private Rigidbody _rigidbody;
         private Vector3 _lastPosition;
-
+        private Patches.CastleWanderTracker _wanderTracker;
 
         private void Awake()
         {
@@ -95,6 +95,16 @@ namespace CompanionEmotionsMod
             {
                 Embarrassment = saved.Embarrassment;
                 Arousal = saved.Arousal;
+            }
+
+            bool isMainPlayer = _customization != null && _customization._Player != null;
+            if (!isMainPlayer)
+            {
+                _wanderTracker = GetComponent<Patches.CastleWanderTracker>();
+                if (_wanderTracker == null)
+                {
+                    _wanderTracker = gameObject.AddComponent<Patches.CastleWanderTracker>();
+                }
             }
 
             if (_animator != null)
@@ -171,6 +181,13 @@ namespace CompanionEmotionsMod
             // Плавный переход веса позы за 0.5 секунды (скорость 2.0/сек)
             float targetWeight = _isCoveringSelf ? 1.0f : 0.0f;
             _coverBlendWeight = Mathf.MoveTowards(_coverBlendWeight, targetWeight, 2.0f * dt);
+
+            if (_wanderTracker != null && (Plugin.EnableCastleLifeFix == null || Plugin.EnableCastleLifeFix.Value) &&
+                Global.code != null && !Global.code.onGUI && Global.code.curlocation != null && Global.code.curlocation.locationType == LocationType.home)
+            {
+                _wanderTracker.Tick(Time.deltaTime);
+            }
+
 
             string charKey = GetCharacterKey();
             if (!string.IsNullOrEmpty(charKey))
@@ -504,7 +521,7 @@ namespace CompanionEmotionsMod
             string pantyStr = _customization.panties != null ? $"Act:{_customization.panties.gameObject.activeInHierarchy}" : "Null";
 
             var wanderTracker = GetComponent<Patches.CastleWanderTracker>();
-            string aiStr = wanderTracker != null ? wanderTracker.DebugStatus : "No Tracker";
+            string aiStr = _wanderTracker != null ? _wanderTracker.DebugStatus : "Player (No AI)";
 
             string text = $"{gameObject.name}\n" +
                           $"Emb: {Embarrassment:F1} (Target: {TargetEmbarrassment:F0}) | Arousal: {Arousal:F1}\n" +

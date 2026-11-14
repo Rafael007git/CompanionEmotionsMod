@@ -9,7 +9,7 @@ using UnityEngine;
 namespace CompanionEmotionsMod
 {
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
-    [BepInDependency("com.lorifel007.furnitureanimations", BepInDependency.DependencyFlags.SoftDependency)]
+    [BepInDependency("com.lorifel007.furnitureanimations", BepInDependency.DependencyFlags.HardDependency)]
     [BepInDependency("aedenthorn.Tattoos", BepInDependency.DependencyFlags.SoftDependency)]
     [BepInProcess("She Will Punish Them.exe")]
     public class Plugin : BaseUnityPlugin
