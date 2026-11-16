@@ -17,11 +17,13 @@ namespace CompanionEmotionsMod.Patches
         private bool _isUsingFurniture;
         private bool _extendedForAudio;
         private float _routineTimer;
+        private float _standUpDelayTimer;
         private float _stuckTimer;
         private Vector3 _destinationPos;
         private Vector3 _lastCheckPos;
         private Vector3 _startWalkPos;
 
+        private static bool _furnitureObstaclesInitialized;
 
         public string DebugStatus { get; private set; } = "Init";
         public bool IsWandering => _agent != null && _agent.enabled && (_agent.hasPath || _agent.pathPending);
@@ -38,7 +40,21 @@ namespace CompanionEmotionsMod.Patches
         {
             if (_companion == null || _agent == null || _customization == null) return;
 
-            // 1. Жёстко удерживаем состояние использования мебели по нашему флагу
+            // Инициализируем NavMeshObstacle для всей мебели в замке один раз при входе в сцену
+            if (!_furnitureObstaclesInitialized && Global.code != null && Global.code.interactableFurnitures != null)
+            {
+                EnsureFurnitureObstacles();
+            }
+
+            // 0. Пауза стабилизации после вставания с мебели (убирает подёргивание анимации)
+            if (_standUpDelayTimer > 0f)
+            {
+                _standUpDelayTimer -= deltaTime;
+                DebugStatus = "Stabilizing stand up...";
+                return;
+            }
+
+            // 1. Удерживаем состояние использования мебели
             if (_isUsingFurniture)
             {
                 _routineTimer -= deltaTime;
@@ -49,14 +65,14 @@ namespace CompanionEmotionsMod.Patches
                     return;
                 }
 
-                // Мягкий намёк: если музыка ещё играет и мы ещё не продлевали таймер под этот трек — доигрываем до конца!
+                // Если музыка ещё играет — доигрываем текущий трек до конца
                 if (!_extendedForAudio)
                 {
                     float remainingAudio = FurnitureAnimAPI.GetRemainingAudioTime(_customization);
                     if (remainingAudio > 0.5f)
                     {
                         _extendedForAudio = true;
-                        _routineTimer = remainingAudio + 0.5f; // +0.5с на плавное затухание/выход
+                        _routineTimer = remainingAudio + 0.05f;
                         string furnName = _activeFurniture != null ? _activeFurniture.name : "Furniture";
                         DebugStatus = $"Finishing song at {furnName} ({_routineTimer:F0}s)";
                         Plugin.Log.LogInfo($"[CastleAI] {gameObject.name} продлевает выступление на {_routineTimer:F1}с, чтобы доиграть трек.");
@@ -80,14 +96,17 @@ namespace CompanionEmotionsMod.Patches
                 _activeFurniture = null;
                 _isUsingFurniture = false;
                 _extendedForAudio = false;
-                _routineTimer = Random.Range(4f, 10f); // Короткая естественная пауза в коридоре (4-10 сек вместо 60-180!)
+
+                // Даём аниматору 0.85с спокойно завершить выход из позы перед включением NavMeshAgent
+                _standUpDelayTimer = 0.3f;
+                _routineTimer = Random.Range(1f, 5f);
                 DebugStatus = "Standing up...";
                 return;
             }
 
             // 2. Вне мебели — следим за NavMeshAgent
             if (!_agent.enabled) _agent.enabled = true;
-            
+
             if (_agent.isOnNavMesh)
             {
                 _agent.nextPosition = transform.position;
@@ -126,7 +145,6 @@ namespace CompanionEmotionsMod.Patches
 
                     if (_targetFurniture != null)
                     {
-                        Plugin.Log.LogWarning($"[WANDER_DEBUG] Arrived at '{_targetFurniture.name}'! MyPos={transform.position}, DestPos={_destinationPos}, Dist={realDist:F2}m");
                         if (_targetFurniture.user == null)
                         {
                             _targetFurniture.InteractWithOnlyPoses(_customization);
@@ -142,15 +160,16 @@ namespace CompanionEmotionsMod.Patches
                     return;
                 }
 
-                if ((transform.position - _lastCheckPos).sqrMagnitude < 0.02f)
+                // Детектор застревания: если за 4 секунды почти не сдвинулись — сбрасываем маршрут
+                if ((transform.position - _lastCheckPos).sqrMagnitude < 0.03f)
                 {
                     _stuckTimer += deltaTime;
-                    if (_stuckTimer >= 7f)
+                    if (_stuckTimer >= 4f)
                     {
                         _companion.Stop();
                         _targetFurniture = null;
                         _stuckTimer = 0f;
-                        _routineTimer = 3f;
+                        _routineTimer = 2f;
                         DebugStatus = "Stuck -> Reset";
                     }
                 }
@@ -189,7 +208,7 @@ namespace CompanionEmotionsMod.Patches
             else
             {
                 DebugStatus = "No Valid Path!";
-                _routineTimer = 5f;
+                _routineTimer = 4f;
             }
         }
 
@@ -206,6 +225,101 @@ namespace CompanionEmotionsMod.Patches
             return true;
         }
 
+        /// <summary>
+        /// Вырезает контуры расставленной мебели из NavMesh, чтобы NPC обходили кресла и столы по дуге.
+        /// </summary>
+        private static void EnsureFurnitureObstacles()
+        {
+            _furnitureObstaclesInitialized = true;
+            int carvedCount = 0;
+
+            foreach (Transform item in Global.code.interactableFurnitures.items)
+            {
+                if (!item || !item.gameObject.activeInHierarchy) continue;
+                if (item.GetComponent<NavMeshObstacle>() != null) continue;
+
+                Collider col = item.GetComponentInChildren<Collider>();
+                if (col == null || col.isTrigger) continue;
+
+                Bounds b = col.bounds;
+                // Игнорируем плоские ковры и слишком огромные архитектурные полы
+                if (b.size.y < 0.25f || b.size.x > 6f || b.size.z > 6f) continue;
+
+                NavMeshObstacle obs = item.gameObject.AddComponent<NavMeshObstacle>();
+                obs.shape = NavMeshObstacleShape.Box;
+                obs.center = item.InverseTransformPoint(b.center);
+                obs.size = new Vector3(
+                    Mathf.Clamp(b.size.x / Mathf.Max(0.1f, item.lossyScale.x), 0.3f, 4f),
+                    Mathf.Clamp(b.size.y / Mathf.Max(0.1f, item.lossyScale.y), 0.3f, 3f),
+                    Mathf.Clamp(b.size.z / Mathf.Max(0.1f, item.lossyScale.z), 0.3f, 4f)
+                                );
+                obs.carving = true;
+                obs.carveOnlyStationary = true;
+                carvedCount++;
+            }
+
+            if (carvedCount > 0)
+            {
+                Plugin.Log.LogInfo($"[CastleAI] Вырезано препятствий в NavMesh для {carvedCount} предметов мебели.");
+            }
+        }
+
+        /// <summary>
+        /// Виртуальная проверка маршрута капсулой: прокатывает габариты тела (включая уровень груди и плеч)
+        /// по всем отрезкам NavMeshPath, отсеивая маршруты с застреванием в выступах стен и мебели.
+        /// </summary>
+        private bool IsPathClearForBody(NavMeshPath path, Furniture allowedTargetFurniture = null)
+        {
+            if (path == null || path.corners == null || path.corners.Length < 2)
+                return false;
+
+            float bodyRadius = 0.30f;
+            Vector3 bottomOffset = Vector3.up * 0.48f; // Выше ковриков и мелких порогов
+            Vector3 topOffset = Vector3.up * 1.55f;    // Уровень плеч и головы (ловит нависающие выступы стен!)
+
+            for (int i = 0; i < path.corners.Length - 1; i++)
+            {
+                Vector3 segStart = path.corners[i];
+                Vector3 segEnd = path.corners[i + 1];
+                Vector3 dir = segEnd - segStart;
+                float dist = dir.magnitude;
+
+                if (dist < 0.05f) continue;
+                dir /= dist;
+
+                if (Physics.CapsuleCast(
+                    segStart + bottomOffset,
+                    segStart + topOffset,
+                    bodyRadius,
+                    dir,
+                    out RaycastHit hit,
+                    dist,
+                    Physics.DefaultRaycastLayers,
+                    QueryTriggerInteraction.Ignore))
+                {
+                    // Игнорируем коллайдеры самой компаньонки и игрока
+                    if (hit.transform.IsChildOf(transform)) continue;
+                    if (Player.code != null && hit.transform.IsChildOf(Player.code.transform)) continue;
+
+                    // Игнорируем других персонажей (они сами разойдутся)
+                    if (hit.transform.GetComponentInParent<Companion>() != null) continue;
+
+                    // Если упёрлись в целевую мебель на финальном отрезке пути (в пределах 1.6м до конца) — это нормально
+                    if (allowedTargetFurniture != null &&
+                        hit.transform.IsChildOf(allowedTargetFurniture.transform) &&
+                        (dist - hit.distance) <= 1.6f)
+                    {
+                        continue;
+                    }
+
+                    // Наткнулись на стену, каменный выступ или постороннюю мебель — маршрут бракуем
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         private bool TryWalkToRandomFurniture()
         {
             if (Global.code == null || Global.code.interactableFurnitures == null) return false;
@@ -217,7 +331,6 @@ namespace CompanionEmotionsMod.Patches
                 if (!item || !item.gameObject.activeInHierarchy) continue;
 
                 float directDist = Vector3.Distance(transform.position, item.position);
-                // Игнорируем слишком далёкую мебель и ту, что уже стоит вплотную (чтобы был реальный шаг)
                 if (directDist > 20f || directDist < 2.8f) continue;
 
                 Furniture f = item.GetComponent<Furniture>();
@@ -229,10 +342,11 @@ namespace CompanionEmotionsMod.Patches
                     if (item.GetComponent<LingerieShop>() != null) continue;
 
                     NavMeshPath path = new NavMeshPath();
-                    if (NavMesh.SamplePosition(item.position, out NavMeshHit hit, 2.0f, NavMesh.AllAreas) &&
-                        Vector3.Distance(hit.position, item.position) <= 2.2f &&
+                    if (NavMesh.SamplePosition(item.position, out NavMeshHit hit, 2.2f, NavMesh.AllAreas) &&
+                        Vector3.Distance(hit.position, item.position) <= 2.3f &&
                         _agent.CalculatePath(hit.position, path) &&
-                        path.status == NavMeshPathStatus.PathComplete)
+                        path.status == NavMeshPathStatus.PathComplete &&
+                        IsPathClearForBody(path, f))
                     {
                         candidates.Add((f, path, hit.position));
                     }
@@ -246,7 +360,6 @@ namespace CompanionEmotionsMod.Patches
             _destinationPos = chosen.destPos;
 
             UnfreezePhysics();
-            Plugin.Log.LogWarning($"[WANDER_DEBUG] Starting walk to '{chosen.furn.name}' at {chosen.destPos} (StartDist={Vector3.Distance(transform.position, chosen.destPos):F2}m)");
             _agent.nextPosition = transform.position;
             _startWalkPos = transform.position;
             _agent.SetPath(chosen.path);
@@ -255,39 +368,30 @@ namespace CompanionEmotionsMod.Patches
 
         private bool TryWanderToRandomPoint()
         {
-            int sampleFails = 0;
-            int pathFails = 0;
-
-            for (int attempt = 0; attempt < 10; attempt++)
+            for (int attempt = 0; attempt < 12; attempt++)
             {
                 Vector2 circle = Random.insideUnitCircle.normalized * Random.Range(4.0f, 9.0f);
                 Vector3 candidate = transform.position + new Vector3(circle.x, 0f, circle.y);
 
                 if (!NavMesh.SamplePosition(candidate, out NavMeshHit hit, 3.0f, NavMesh.AllAreas))
-                {
-                    sampleFails++;
                     continue;
-                }
 
                 NavMeshPath path = new NavMeshPath();
                 if (!_agent.CalculatePath(hit.position, path) || path.status != NavMeshPathStatus.PathComplete)
-                {
-                    pathFails++;
                     continue;
-                }
+
+                // Проверяем весь маршрут виртуальной капсулой до начала движения
+                if (!IsPathClearForBody(path))
+                    continue;
 
                 UnfreezePhysics();
                 _agent.nextPosition = transform.position;
                 _startWalkPos = transform.position;
                 _destinationPos = hit.position;
 
-                bool setOk = _agent.SetPath(path);
-                DebugStatus = $"SetPath={setOk} | HasPath={_agent.hasPath} | Pending={_agent.pathPending}";
-                Plugin.Log.LogInfo($"[CastleAI_Diag] {gameObject.name}: SetPath={setOk}, HasPath={_agent.hasPath}, Pending={_agent.pathPending}, OnNavMesh={_agent.isOnNavMesh}, Stopped={_agent.isStopped}");
-                return setOk;
+                return _agent.SetPath(path);
             }
 
-            DebugStatus = $"NoPath (SampleFail:{sampleFails}, PathFail:{pathFails})";
             return false;
         }
 
@@ -305,6 +409,12 @@ namespace CompanionEmotionsMod.Patches
             _agent.updateRotation = false;
             if (_agent.speed < 1.5f) _agent.speed = 3.5f;
             _agent.isStopped = false;
+        }
+
+        // Сбрасываем кэш препятствий при смене локации
+        private void OnDestroy()
+        {
+            _furnitureObstaclesInitialized = false;
         }
     }
 
@@ -351,12 +461,10 @@ namespace CompanionEmotionsMod.Patches
                     if (!comp) continue;
 
                     Animator anim = comp.GetComponent<Animator>();
-                    // Если anim.enabled == false, персонаж осознанно заморожен через Keep Pose в Advanced Free Pose
                     if (anim != null && anim.enabled)
                     {
                         anim.speed = 1f;
 
-                        // Размораживаем физику и навигацию после режима позирования
                         CastleWanderTracker tracker = comp.GetComponent<CastleWanderTracker>();
                         if (tracker != null)
                         {
@@ -385,10 +493,7 @@ namespace CompanionEmotionsMod.Patches
         public static bool Prefix(Companion __instance)
         {
             if (Plugin.EnableCastleLifeFix != null && !Plugin.EnableCastleLifeFix.Value) return true;
-            // Полностью отключаем ванильный телепорт на случайную мебель при загрузке сцены,
-            // чтобы девушки не скакали по витринам и не исчезали через SetActive(false)
             return false;
         }
     }
-
 }
