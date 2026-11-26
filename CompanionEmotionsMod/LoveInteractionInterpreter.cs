@@ -28,6 +28,8 @@ namespace CompanionEmotionsMod
         public int Priority;
         public float ArousalGainPerSec;
         public float EmbarrassmentGainPerSec;
+        public float MotionArousalMultiplier = 3.0f;
+        public float MotionEmbarrassmentMultiplier = 1.2f;
     }
 
     public static class LoveInteractionInterpreter
@@ -37,12 +39,13 @@ namespace CompanionEmotionsMod
             public PhysicalInteractionType Type;
             public bool IsEngaged;
             public float EngagedDuration;
-            public float LastApproachSpeed;
-            public float PulseCooldown;
+            public bool WasMoving;
         }
 
         private static readonly Dictionary<string, InteractionRule> _rules = new Dictionary<string, InteractionRule>();
         private static readonly Dictionary<string, ActiveContactState> _activeContacts = new Dictionary<string, ActiveContactState>();
+
+        private const float CaressSpeedThreshold = 0.035f; // 3.5 см/сек — порог нежного скольжения/движения
 
         public static void Initialize()
         {
@@ -61,11 +64,13 @@ namespace CompanionEmotionsMod
                 Type = PhysicalInteractionType.MutualKiss,
                 SourceZone = "Mouth",
                 TargetZone = "Mouth",
-                EnterRadius = 0.14f,
-                ExitRadius = 0.18f,
+                EnterRadius = 0.16f,
+                ExitRadius = 0.21f,
                 Priority = 100,
-                ArousalGainPerSec = 4.0f,
-                EmbarrassmentGainPerSec = 2.0f
+                ArousalGainPerSec = 2.0f,
+                EmbarrassmentGainPerSec = 1.5f,
+                MotionArousalMultiplier = 2.5f,
+                MotionEmbarrassmentMultiplier = 1.1f
             });
 
             AddRule(new InteractionRule
@@ -73,11 +78,13 @@ namespace CompanionEmotionsMod
                 Type = PhysicalInteractionType.OralToVagina,
                 SourceZone = "Mouth",
                 TargetZone = "Vagina",
-                EnterRadius = 0.15f,
-                ExitRadius = 0.20f,
+                EnterRadius = 0.18f,
+                ExitRadius = 0.23f,
                 Priority = 95,
-                ArousalGainPerSec = 9.0f,
-                EmbarrassmentGainPerSec = 6.0f
+                ArousalGainPerSec = 4.0f,
+                EmbarrassmentGainPerSec = 4.0f,
+                MotionArousalMultiplier = 3.0f,
+                MotionEmbarrassmentMultiplier = 1.2f
             });
 
             AddRule(new InteractionRule
@@ -85,11 +92,13 @@ namespace CompanionEmotionsMod
                 Type = PhysicalInteractionType.HandToBreast,
                 SourceZone = "Hands",
                 TargetZone = "Pectorals",
-                EnterRadius = 0.16f,
-                ExitRadius = 0.21f,
+                EnterRadius = 0.25f,
+                ExitRadius = 0.30f,
                 Priority = 70,
-                ArousalGainPerSec = 5.5f,
-                EmbarrassmentGainPerSec = 4.0f
+                ArousalGainPerSec = 2.0f,
+                EmbarrassmentGainPerSec = 2.5f,
+                MotionArousalMultiplier = 3.0f,
+                MotionEmbarrassmentMultiplier = 1.2f
             });
 
             AddRule(new InteractionRule
@@ -97,11 +106,27 @@ namespace CompanionEmotionsMod
                 Type = PhysicalInteractionType.HandToThigh,
                 SourceZone = "Hands",
                 TargetZone = "Thighs",
-                EnterRadius = 0.15f,
-                ExitRadius = 0.20f,
+                EnterRadius = 0.20f,
+                ExitRadius = 0.25f,
                 Priority = 60,
-                ArousalGainPerSec = 3.5f,
-                EmbarrassmentGainPerSec = 3.0f
+                ArousalGainPerSec = 1.5f,
+                EmbarrassmentGainPerSec = 2.0f,
+                MotionArousalMultiplier = 2.5f,
+                MotionEmbarrassmentMultiplier = 1.1f
+            });
+
+            AddRule(new InteractionRule
+            {
+                Type = PhysicalInteractionType.PelvicContact,
+                SourceZone = "Clitoris",
+                TargetZone = "Vagina",
+                EnterRadius = 0.16f,
+                ExitRadius = 0.21f,
+                Priority = 90,
+                ArousalGainPerSec = 5.0f,
+                EmbarrassmentGainPerSec = 4.0f,
+                MotionArousalMultiplier = 3.0f,
+                MotionEmbarrassmentMultiplier = 1.2f
             });
         }
 
@@ -116,7 +141,7 @@ namespace CompanionEmotionsMod
             CharacterCustomization target,
             string targetZone,
             float distance,
-            float approachSpeed)
+            float relativeSpeed)
         {
             if (source == null || target == null) return;
 
@@ -134,11 +159,13 @@ namespace CompanionEmotionsMod
             {
                 state.IsEngaged = true;
                 state.EngagedDuration = 0f;
+                state.WasMoving = false;
                 Plugin.Log?.LogInfo($"[LoveInterpreter] START {rule.Type}: {source.characterName} -> {target.characterName} (dist={distance:F3}m)");
             }
             else if (state.IsEngaged && distance > rule.ExitRadius)
             {
                 state.IsEngaged = false;
+                state.WasMoving = false;
                 Plugin.Log?.LogInfo($"[LoveInterpreter] END {rule.Type}: {source.characterName} -> {target.characterName} (duration={state.EngagedDuration:F1}s)");
                 return;
             }
@@ -147,26 +174,33 @@ namespace CompanionEmotionsMod
 
             const float dt = 0.05f;
             state.EngagedDuration += dt;
-            if (state.PulseCooldown > 0f) state.PulseCooldown -= dt;
 
-            if (state.LastApproachSpeed > 0.12f && approachSpeed <= 0.02f && state.PulseCooldown <= 0f)
+            bool isMoving = relativeSpeed > CaressSpeedThreshold;
+            if (isMoving && !state.WasMoving)
             {
-                state.PulseCooldown = 0.25f;
-                Plugin.Log?.LogInfo($"[LoveInterpreter] PULSE {rule.Type}: {source.characterName} -> {target.characterName} (speed={state.LastApproachSpeed:F2}m/s)");
+                Plugin.Log?.LogInfo($"[LoveInterpreter] CARESS/MOTION {rule.Type}: {source.characterName} -> {target.characterName} (speed={relativeSpeed:F2}m/s)");
             }
-            state.LastApproachSpeed = approachSpeed;
+            state.WasMoving = isMoving;
 
-            ApplyEmotionalDelta(target, rule.ArousalGainPerSec * dt, rule.EmbarrassmentGainPerSec * dt);
+            float arousalMult = isMoving ? rule.MotionArousalMultiplier : 1.0f;
+            float embMult = isMoving ? rule.MotionEmbarrassmentMultiplier : 1.0f;
+
+            ApplyEmotionalDelta(
+                target,
+                rule.ArousalGainPerSec * arousalMult * dt,
+                rule.EmbarrassmentGainPerSec * embMult * dt
+            );
         }
-
         private static void ApplyEmotionalDelta(CharacterCustomization target, float dArousal, float dEmbarrassment)
         {
-            if (target == null || string.IsNullOrEmpty(target.characterName)) return;
+            if (target == null) return;
 
-            Plugin.EmotionMemory.TryGetValue(target.characterName, out var mem);
-            mem.Arousal = Mathf.Clamp(mem.Arousal + dArousal, 0f, 100f);
-            mem.Embarrassment = Mathf.Clamp(mem.Embarrassment + dEmbarrassment, 0f, 100f);
-            Plugin.EmotionMemory[target.characterName] = mem;
+            var controller = target.GetComponent<CompanionEmotionController>();
+            if (controller != null)
+            {
+                controller.AddArousal(dArousal);
+                controller.AddEmbarrassmentImpulse(dEmbarrassment);
+            }
         }
     }
 }

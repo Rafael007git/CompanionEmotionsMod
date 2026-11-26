@@ -160,8 +160,9 @@ namespace CompanionEmotionsMod
 
             Embarrassment = Mathf.MoveTowards(Embarrassment, effectiveTargetEmb, embSpeed * dt);
 
-            // Natural decay for Arousal (placeholder for Phase 2)
-            Arousal = Mathf.MoveTowards(Arousal, 0f, 4.0f * dt);
+            // Экспоненциальное затухание Arousal: формирует естественное плато для каждой интенсивности стимула
+            float arousalDecayRate = Mathf.Max(0.4f, Arousal * 0.06f);
+            Arousal = Mathf.MoveTowards(Arousal, 0f, arousalDecayRate * dt);
 
             // Белый список: поза ENF разрешена ТОЛЬКО в обычном режиме прогулки по замку
             bool isNormalCastleMode = Global.code != null &&

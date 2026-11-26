@@ -16,7 +16,7 @@ namespace CompanionEmotionsMod
     {
         public const string PluginGuid = "com.lorifel007.companionemotions";
         public const string PluginName = "Companion Emotions Mod";
-        public const string PluginVersion = "0.2.0";
+        public const string PluginVersion = "0.2.1";
 
         public static ManualLogSource Log;
         private Harmony harmony;
