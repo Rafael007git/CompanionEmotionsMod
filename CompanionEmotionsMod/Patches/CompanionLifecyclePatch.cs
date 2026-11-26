@@ -86,13 +86,42 @@ namespace CompanionEmotionsMod.Patches
                     return;
                 }
 
+                // Старый блок выхода
                 if (_activeFurniture != null)
                 {
                     try { _activeFurniture.QuitInteractWithOnlyPoses(_customization); }
                     catch { _customization.interactingObject = null; }
                 }
 
+                /* // Новый блок покидания мебели
+                Furniture leavingFurniture = _activeFurniture;
+                if (leavingFurniture != null)
+                {
+                    try { leavingFurniture.QuitInteractWithOnlyPoses(_customization); }
+                    catch { _customization.interactingObject = null; }
+
+                    // Вычисляем внешний радиус мебели и ставим компаньонку аккуратно у её края (0.65м)
+                    float furnRadius = 0.5f;
+                    Collider furnCol = leavingFurniture.GetComponentInChildren<Collider>();
+                    if (furnCol != null)
+                    {
+                        furnRadius = Mathf.Clamp(Mathf.Max(furnCol.bounds.extents.x, furnCol.bounds.extents.z), 0.35f, 3.0f);
+                    }
+
+                    Vector3 exitDir = (transform.position - leavingFurniture.transform.position);
+                    exitDir.y = 0f;
+                    if (exitDir.sqrMagnitude < 0.01f) exitDir = leavingFurniture.transform.forward;
+                    exitDir.Normalize();
+
+                    Vector3 desiredExit = leavingFurniture.transform.position + exitDir * (furnRadius + 0.65f);
+                    if (NavMesh.SamplePosition(desiredExit, out NavMeshHit exitHit, 1.2f, NavMesh.AllAreas))
+                    {
+                        transform.position = exitHit.position;
+                    }
+                } */
+
                 FurnitureAnimAPI.StopCompanionAnimation(_customization);
+
                 _activeFurniture = null;
                 _isUsingFurniture = false;
                 _extendedForAudio = false;
@@ -164,7 +193,7 @@ namespace CompanionEmotionsMod.Patches
                 if ((transform.position - _lastCheckPos).sqrMagnitude < 0.03f)
                 {
                     _stuckTimer += deltaTime;
-                    if (_stuckTimer >= 4f)
+                    if (_stuckTimer >= 2f)
                     {
                         _companion.Stop();
                         _targetFurniture = null;
@@ -273,7 +302,7 @@ namespace CompanionEmotionsMod.Patches
             if (path == null || path.corners == null || path.corners.Length < 2)
                 return false;
 
-            float bodyRadius = 0.30f;
+            float bodyRadius = 0.22f;
             Vector3 bottomOffset = Vector3.up * 0.48f; // Выше ковриков и мелких порогов
             Vector3 topOffset = Vector3.up * 1.55f;    // Уровень плеч и головы (ловит нависающие выступы стен!)
 
@@ -331,7 +360,7 @@ namespace CompanionEmotionsMod.Patches
                 if (!item || !item.gameObject.activeInHierarchy) continue;
 
                 float directDist = Vector3.Distance(transform.position, item.position);
-                if (directDist > 20f || directDist < 2.8f) continue;
+                if (directDist > 30f || directDist < 2f) continue;
 
                 Furniture f = item.GetComponent<Furniture>();
                 if (f != null && f.user == null)
@@ -370,7 +399,7 @@ namespace CompanionEmotionsMod.Patches
         {
             for (int attempt = 0; attempt < 12; attempt++)
             {
-                Vector2 circle = Random.insideUnitCircle.normalized * Random.Range(4.0f, 9.0f);
+                Vector2 circle = Random.insideUnitCircle.normalized * Random.Range(8.0f, 28.0f);
                 Vector3 candidate = transform.position + new Vector3(circle.x, 0f, circle.y);
 
                 if (!NavMesh.SamplePosition(candidate, out NavMeshHit hit, 3.0f, NavMesh.AllAreas))
